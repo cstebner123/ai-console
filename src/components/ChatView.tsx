@@ -18,96 +18,112 @@ export const ChatView: React.FC = () => {
 
   const messages: Message[] = activeSession?.messages ?? [];
 
-  async function send() {
-    if (!input.trim() || loading || !activeSession) return;
+ async function send() {
+  if (!input.trim() || loading || !activeSession) return;
 
-    const sessionId = activeSession.id;
-    const userText = input.trim();
-    setInput("");
-    setLoading(true);
-    setThinkingText("");
+  const sessionId = activeSession.id;
+  const userText = input.trim();
+  setInput("");
+  setLoading(true);
+  setThinkingText("");
 
-    const now = new Date().toISOString();
+  const now = new Date().toISOString();
 
-    const userMessageId = uuidv4();
-    const assistantMessageId = uuidv4();
+  // 🔹 Build short-term conversation memory from prior messages
+  const priorMessages = activeSession.messages;
+  const contextLines = priorMessages
+    .map((m) => {
+      const who = m.role === "user" ? "User" : "Assistant";
+      return `${who}: ${m.content}`;
+    })
+    .join("\n");
 
-    // 1) User message
-    dispatch({
-      type: "ADD_MESSAGE",
-      payload: {
-        sessionId,
-        message: {
-          id: userMessageId,
-          role: "user",
-          content: userText,
-          createdAt: now,
-        },
+  // 🔹 Final prompt that includes memory + latest turn
+  const fullPrompt = contextLines
+    ? `${contextLines}\nUser: ${userText}\nAssistant:`
+    : userText;
+
+  const userMessageId = uuidv4();
+  const assistantMessageId = uuidv4();
+
+  // 1) Add user message
+  dispatch({
+    type: "ADD_MESSAGE",
+    payload: {
+      sessionId,
+      message: {
+        id: userMessageId,
+        role: "user",
+        content: userText,
+        createdAt: now,
       },
-    });
+    },
+  });
 
-    // 2) Assistant placeholder
-    dispatch({
-      type: "ADD_MESSAGE",
-      payload: {
-        sessionId,
-        message: {
-          id: assistantMessageId,
-          role: "assistant",
-          content: "",
-          createdAt: new Date().toISOString(),
-        },
+  // 2) Add placeholder assistant message (to be filled during stream)
+  dispatch({
+    type: "ADD_MESSAGE",
+    payload: {
+      sessionId,
+      message: {
+        id: assistantMessageId,
+        role: "assistant",
+        content: "",
+        createdAt: new Date().toISOString(),
       },
-    });
+    },
+  });
 
-    try {
-      let answerText = "";
-      let localThinking = "";
+  try {
+    let answerText = "";
+    let thinkingAccum = "";
 
-      for await (const chunk of streamQuery(userText, model)) {
-        if (chunk.isThinking) {
-          localThinking += chunk.text;
-          setThinkingText(localThinking);
-        } else {
-          answerText += chunk.text;
+    // 🔹 Use fullPrompt instead of userText
+    for await (const chunk of streamQuery(fullPrompt, model)) {
+      if (chunk.isThinking) {
+        thinkingAccum += chunk.text;
+        setThinkingText(thinkingAccum);
+      } else {
+        answerText += chunk.text;
 
+        dispatch({
+          type: "UPDATE_MESSAGE",
+          payload: {
+            sessionId,
+            messageId: assistantMessageId,
+            patch: { content: answerText },
+          },
+        });
+
+        // Update session title based on first response
+        const currentSession =
+          state.sessions.find((s) => s.id === sessionId) ?? activeSession;
+        if (currentSession.title === "New chat" && answerText.length > 20) {
           dispatch({
-            type: "UPDATE_MESSAGE",
+            type: "UPDATE_SESSION_TITLE",
             payload: {
               sessionId,
-              messageId: assistantMessageId,
-              patch: { content: answerText },
+              title: answerText.slice(0, 60),
             },
           });
-
-          // Update title from first answer
-          const currentSession =
-            state.sessions.find((s) => s.id === sessionId) ?? activeSession;
-          if (currentSession.title === "New chat" && answerText.length > 20) {
-            dispatch({
-              type: "UPDATE_SESSION_TITLE",
-              payload: {
-                sessionId,
-                title: answerText.slice(0, 60),
-              },
-            });
-          }
         }
       }
-    } catch (err: any) {
-      const msg = err?.message ?? String(err);
-      dispatch({
-        type: "UPDATE_MESSAGE",
-        payload: {
-          sessionId,
-          messageId: assistantMessageId,
-          patch: { content: `Error: ${msg}` },
-        },
-      });
-    } finally {
-      setLoading(false);
     }
+  } catch (err: any) {
+    const msg = err?.message ?? String(err);
+    dispatch({
+      type: "UPDATE_MESSAGE",
+      payload: {
+        sessionId,
+        messageId: assistantMessageId,
+        patch: { content: `Error: ${msg}` },
+      },
+    });
+  } finally {
+    setLoading(false);
   }
+}
+
 
   const handleKeyDown: React.KeyboardEventHandler<HTMLTextAreaElement> = (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
