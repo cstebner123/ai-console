@@ -1,4 +1,3 @@
-// src/components/ChatView.tsx
 import React, { useMemo, useState } from "react";
 import { useChatStore } from "../state/chatContext";
 import { streamQuery } from "../api";
@@ -10,6 +9,7 @@ export const ChatView: React.FC = () => {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [model, setModel] = useState<string | undefined>(undefined);
+  const [thinkingText, setThinkingText] = useState("");
 
   const activeSession = useMemo(
     () => state.sessions.find((s) => s.id === state.activeSessionId) ?? null,
@@ -25,13 +25,14 @@ export const ChatView: React.FC = () => {
     const userText = input.trim();
     setInput("");
     setLoading(true);
+    setThinkingText("");
 
     const now = new Date().toISOString();
 
     const userMessageId = uuidv4();
     const assistantMessageId = uuidv4();
 
-    // 1) Add user message
+    // 1) User message
     dispatch({
       type: "ADD_MESSAGE",
       payload: {
@@ -45,7 +46,7 @@ export const ChatView: React.FC = () => {
       },
     });
 
-    // 2) Add empty assistant message
+    // 2) Assistant placeholder
     dispatch({
       type: "ADD_MESSAGE",
       payload: {
@@ -60,32 +61,37 @@ export const ChatView: React.FC = () => {
     });
 
     try {
-      let accumulated = "";
+      let answerText = "";
+      let localThinking = "";
 
       for await (const chunk of streamQuery(userText, model)) {
-        accumulated += chunk;
+        if (chunk.isThinking) {
+          localThinking += chunk.text;
+          setThinkingText(localThinking);
+        } else {
+          answerText += chunk.text;
 
-        // Update assistant message content as we stream
-        dispatch({
-          type: "UPDATE_MESSAGE",
-          payload: {
-            sessionId,
-            messageId: assistantMessageId,
-            patch: { content: accumulated },
-          },
-        });
-
-        // Set session title from first response if still default
-        const currentSession =
-          state.sessions.find((s) => s.id === sessionId) ?? activeSession;
-        if (currentSession.title === "New chat" && accumulated.length > 20) {
           dispatch({
-            type: "UPDATE_SESSION_TITLE",
+            type: "UPDATE_MESSAGE",
             payload: {
               sessionId,
-              title: accumulated.slice(0, 60),
+              messageId: assistantMessageId,
+              patch: { content: answerText },
             },
           });
+
+          // Update title from first answer
+          const currentSession =
+            state.sessions.find((s) => s.id === sessionId) ?? activeSession;
+          if (currentSession.title === "New chat" && answerText.length > 20) {
+            dispatch({
+              type: "UPDATE_SESSION_TITLE",
+              payload: {
+                sessionId,
+                title: answerText.slice(0, 60),
+              },
+            });
+          }
         }
       }
     } catch (err: any) {
@@ -163,10 +169,31 @@ export const ChatView: React.FC = () => {
             <option value="">Default model</option>
             <option value="llama3">llama3</option>
             <option value="gpt-oss">gpt-oss</option>
-            {/* extend with your available models */}
           </select>
         </div>
       </header>
+
+      {/* Thinking panel */}
+      {(thinkingText || (loading && model === "gpt-oss")) && (
+        <div
+          style={{
+            marginBottom: 8,
+            padding: 8,
+            borderRadius: 8,
+            background: "#f3f4f6",
+            border: "1px dashed #9ca3af",
+            fontSize: 12,
+            color: "#4b5563",
+            maxHeight: 120,
+            overflowY: "auto",
+          }}
+        >
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>Thinking</div>
+          <div style={{ whiteSpace: "pre-wrap" }}>
+            {thinkingText || "…"}
+          </div>
+        </div>
+      )}
 
       {/* Messages */}
       <div
