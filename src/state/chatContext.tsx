@@ -19,9 +19,23 @@ type Action =
   | { type: "CREATE_SESSION"; payload: { projectId: string | null } }
   | { type: "SET_ACTIVE_SESSION"; payload: { id: string } }
   | { type: "ADD_MESSAGE"; payload: { sessionId: string; message: Message } }
-  | { type: "REPLACE_SESSION_MESSAGES"; payload: { sessionId: string; messages: Message[] } }
-  | { type: "UPDATE_SESSION_TITLE"; payload: { sessionId: string; title: string } }
-  | { type: "CREATE_PROJECT"; payload: { name: string } };
+  | {
+      type: "REPLACE_SESSION_MESSAGES";
+      payload: { sessionId: string; messages: Message[] };
+    }
+  | {
+      type: "UPDATE_SESSION_TITLE";
+      payload: { sessionId: string; title: string };
+    }
+  | { type: "CREATE_PROJECT"; payload: { name: string } }
+  | {
+      type: "UPDATE_MESSAGE";
+      payload: {
+        sessionId: string;
+        messageId: string;
+        patch: Partial<Message>;
+      };
+    };
 
 const STORAGE_KEY = "ai_console_state_v1";
 
@@ -99,6 +113,23 @@ function reducer(state: ChatState, action: Action): ChatState {
       );
       return { ...state, sessions };
     }
+
+    case "UPDATE_MESSAGE": {
+      const { sessionId, messageId, patch } = action.payload;
+      const sessions = state.sessions.map((s) => {
+        if (s.id !== sessionId) return s;
+        const messages = s.messages.map((m) =>
+          m.id === messageId ? { ...m, ...patch } : m
+        );
+        return {
+          ...s,
+          messages,
+          updatedAt: new Date().toISOString(),
+        };
+      });
+      return { ...state, sessions };
+    }
+
 
     default:
       return state;
