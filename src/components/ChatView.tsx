@@ -3,6 +3,10 @@ import { useChatStore } from "../state/chatContext";
 import { streamQuery } from "../api";
 import type { Message } from "../types";
 import { v4 as uuidv4 } from "uuid";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
 
 export const ChatView: React.FC = () => {
   const { state, dispatch } = useChatStore();
@@ -225,30 +229,44 @@ export const ChatView: React.FC = () => {
             Start the conversation by sending a message.
           </div>
         )}
-        {messages.map((m) => (
-          <div
-            key={m.id}
-            style={{
-              display: "flex",
-              justifyContent: m.role === "user" ? "flex-end" : "flex-start",
-              marginBottom: 8,
-            }}
+  {messages.map((m) => (
+  <div
+    key={m.id}
+    style={{
+      display: "flex",
+      justifyContent: m.role === "user" ? "flex-end" : "flex-start",
+      marginBottom: 8,
+    }}
+  >
+    <div
+      style={{
+        maxWidth: "70%",
+        padding: "8px 10px",
+        borderRadius: 10,
+        background: m.role === "user" ? "#111827" : "#e5e7eb",
+        color: m.role === "user" ? "#f9fafb" : "#111827",
+        fontSize: 14,
+        whiteSpace: "pre-wrap",
+      }}
+    >
+      {m.role === "assistant" ? (
+        m.content ? (
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm, remarkMath]}
+            rehypePlugins={[rehypeKatex]}
           >
-            <div
-              style={{
-                maxWidth: "70%",
-                padding: "8px 10px",
-                borderRadius: 10,
-                background: m.role === "user" ? "#111827" : "#e5e7eb",
-                color: m.role === "user" ? "#f9fafb" : "#111827",
-                fontSize: 14,
-                whiteSpace: "pre-wrap",
-              }}
-            >
-              {m.content || (m.role === "assistant" && loading ? "…" : "")}
-            </div>
-          </div>
-        ))}
+            {m.content}
+          </ReactMarkdown>
+        ) : (
+          loading && "…"
+        )
+      ) : (
+        // user messages stay plain text
+        m.content
+      )}
+    </div>
+  </div>
+))}
       </div>
 
       {/* Input */}
